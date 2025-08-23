@@ -26,7 +26,7 @@ def fetch_spx_1min(start_date, end_date):
         if not df.empty:
             df = df.reset_index()  # make Datetime a column
             df = df[['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume']]  # Select columns
-            all_data.append(df)  # Ssave chunk
+            all_data.append(df)  # save chunk
 
         start = chunk_end + timedelta(days=1)  # next chunk
 
@@ -34,6 +34,6 @@ def fetch_spx_1min(start_date, end_date):
     return pd.concat(all_data, ignore_index=True) if all_data else pd.DataFrame(columns=['Datetime', 'Open', 'High', 'Low', 'Close', 'Volume'])
 
 if __name__ == "__main__":
-    spx_1min_df = fetch_spx_1min('2025-07-15', '2025-08-15')  # fetch data
+    spx_1min_df = fetch_spx_1min('2025-08-01', '2025-08-15')  # fetch data
     print(spx_1min_df.head())  # show preview
     spx_1min_df.to_csv('spx_1min.csv', index=False)  # save CSV
