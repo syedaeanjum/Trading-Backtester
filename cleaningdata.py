@@ -1,17 +1,8 @@
 import pandas as pd
-
 def clean_intraday_data(csv_file, start_time="15:00", end_time="18:00"):
-    """
-    Load and clean intraday data from CSV:
-    - Parse datetime
-    - Sort chronologically
-    - Drop duplicates
-    - Filter to market hours (default: NYSE 09:30–16:00)
-    - Forward-fill any missing values
-    """
 
     # Load CSV
-    df = pd.read_csv(csv_file, parse_dates=['Datetime'])
+    df = pd.read_csv(csv_file, parse_dates=["Datetime"])
 
     # Ensure chronological order
     df = df.sort_values("Datetime").reset_index(drop=True)
@@ -31,10 +22,26 @@ def clean_intraday_data(csv_file, start_time="15:00", end_time="18:00"):
 
     return df
 
-if __name__ == "__main__":
-    cleaned_df = clean_intraday_data("spx_1min.csv")
-    print(cleaned_df.head())
-    print(cleaned_df.tail())
 
-    # Save clean dataset
-    cleaned_df.to_csv("spx_1min_clean.csv", index=False)
+if __name__ == "__main__":
+    # Example configuration for backtest time
+    backtest_start_time = "08:00"
+    backtest_end_time = "11:00"
+
+    # Clean SPX data
+    cleaned_df_spx = clean_intraday_data(
+        "spx_1min.csv", start_time=backtest_start_time, end_time=backtest_end_time
+    )
+    print("SPX Preview:")
+    print(cleaned_df_spx.head())
+    print(cleaned_df_spx.tail())
+    cleaned_df_spx.to_csv("spx_1min_clean.csv", index=False)
+
+    # Clean Gold data
+    cleaned_df_gold = clean_intraday_data(
+        "gold_1min.csv", start_time=backtest_start_time, end_time=backtest_end_time
+    )
+    print("Gold Preview:")
+    print(cleaned_df_gold.head())
+    print(cleaned_df_gold.tail())
+    cleaned_df_gold.to_csv("gold_1min_clean.csv", index=False)
