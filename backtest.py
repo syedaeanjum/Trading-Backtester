@@ -1,3 +1,4 @@
+import pandas as pd
 def backtest(df, starting_equity=1000.0):
     """
     Backtest a strategy.
@@ -27,5 +28,13 @@ def backtest(df, starting_equity=1000.0):
     print(f"Max Drawdown     : {max_drawdown:.2f}")
     print(f"Ending Equity    : {ending_equity:.2f}")
     print("============================")
+
+    # Save all trades to CSV
+    trades = df[df['P&L'] != 0].copy()
+    if not trades.empty:
+        trades['Action'] = trades['Signal'].map({1: "BUY", -1: "SELL", 0: "HOLD"})
+        trades = trades[['Datetime', 'Action', 'Close', 'Position', 'P&L', 'Cumulative_Returns']]
+        trades.to_csv("trades.csv", index=False)
+        print(f"\nAll trades saved to trades.csv ({len(trades)} rows)\n")
 
     return df
