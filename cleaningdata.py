@@ -4,7 +4,7 @@ def clean_intraday_data(csv_file, start_time="15:00", end_time="18:00"):
     # Load CSV
     df = pd.read_csv(csv_file, parse_dates=["Datetime"])
 
-    # Ensure chronological order
+    # chronological order
     df = df.sort_values("Datetime").reset_index(drop=True)
 
     # Drop duplicates

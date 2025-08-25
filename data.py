@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 def fetch_data(ticker, start_date, end_date, interval="1m"):
     """
-    Fetch intraday data (default 1-min) from Yahoo Finance in chunks.
+    Fetch data (1-min) from Yahoo Finance in chunks.
     
     ticker: Yahoo Finance symbol (e.g., '^GSPC' for S&P 500, 'GC=F' for Gold futures)
     start_date, end_date: date range in 'YYYY-MM-DD' format
