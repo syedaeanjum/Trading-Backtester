@@ -3,7 +3,6 @@ import pandas as pd
 
 # =====================  SIMPLE SIGNAL STRATEGIES  =====================
 
-
 def ema_single(df: pd.DataFrame, window: int = 9) -> pd.DataFrame:
     """
     Single EMA Strategy:
@@ -13,102 +12,169 @@ def ema_single(df: pd.DataFrame, window: int = 9) -> pd.DataFrame:
 
     """
     df = df.copy()
-
-    # Make sure 'Close' is numeric; if not, convert bad strings to NaN
+    
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
 
-    # Calculate the EMA line we compare price against
     df["EMA"] = df["Close"].ewm(span=window, adjust=False).mean()
 
-    # Build signals based on where price is relative to the EMA
     df["Signal"] = 0
     mask_valid = df["Close"].notna() & df["EMA"].notna()
-    df.loc[mask_valid & (df["Close"] > df["EMA"]), "Signal"] = 1  # BUY
-    df.loc[mask_valid & (df["Close"] < df["EMA"]), "Signal"] = -1  # SELL
-
+    df.loc[mask_valid & (df["Close"] > df["EMA"]), "Signal"] = 1
+    df.loc[mask_valid & (df["Close"] < df["EMA"]), "Signal"] = -1
     return df
 
 
-def ema_crossover(
-    df: pd.DataFrame, short_window: int = 9, long_window: int = 21
-) -> pd.DataFrame:
+def ema_crossover(df: pd.DataFrame, short_window: int = 9, long_window: int = 21) -> pd.DataFrame:
     """
     EMA Crossover Strategy (classic trend-following idea):
     1) Compute two EMAs: a short-term one and a long-term one.
     2) If short EMA is above long EMA → set Signal = +1 (BUY).
     3) If short EMA is below long EMA → set Signal = -1 (SELL).
-
-    Note: This only creates signals. To get P&L and trades, call execute_signals() after this.
+    
     """
     df = df.copy()
-
-    # Make sure 'Close' is numeric
+    
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-
+    
     # Short-term and long-term moving averages of price
-    df["EMA_short"] = df["Close"].ewm(span=short_window, adjust=False).mean()
-    df["EMA_long"] = df["Close"].ewm(span=long_window, adjust=False).mean()
 
-    # Signals based on the relative position of the two EMAs
+    df["EMA_short"] = df["Close"].ewm(span=short_window, adjust=False).mean()
+    df["EMA_long"]  = df["Close"].ewm(span=long_window,  adjust=False).mean()
+
+# Signals based on the relative position of the two EMAs
+
     df["Signal"] = 0
     mask_valid = df["EMA_short"].notna() & df["EMA_long"].notna()
     df.loc[mask_valid & (df["EMA_short"] > df["EMA_long"]), "Signal"] = 1
     df.loc[mask_valid & (df["EMA_short"] < df["EMA_long"]), "Signal"] = -1
+    return df
+
+
+def bollinger_strategy(
+    df: pd.DataFrame,
+    window: int = 20,          # how many bars we average over
+    num_std: float = 2.0,      # band width in standard deviations
+    use_ema: bool = False,     # middle band: EMA if True, else SMA
+    hold_until_mid: bool = True  # if True, hold until price re-crosses the middle band
+) -> pd.DataFrame:
+    
+    """
+    
+    Bollinger Bands (mean reversion):
+    - Build Middle (moving average), Upper/Lower bands = Middle ± num_std * stdev.
+    - If price < Lower → BUY (+1).
+    - If price > Upper → SELL (-1).
+
+    Modes:
+    - hold_until_mid=False: signal only when touching a band (flat otherwise).
+    - hold_until_mid=True: enter on touch and HOLD until price crosses back to the middle band.
+    
+    """
+    df = df.copy()
+    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
+
+    # Middle band + volatility estimate (stdev)
+    if use_ema:
+        middle = df["Close"].ewm(span=window, adjust=False).mean()
+        stdev  = df["Close"].rolling(window=window, min_periods=window).std()
+    else:
+        middle = df["Close"].rolling(window=window, min_periods=window).mean()
+        stdev  = df["Close"].rolling(window=window, min_periods=window).std()
+
+    upper = middle + num_std * stdev
+    lower = middle - num_std * stdev
+
+    df["Middle"] = middle
+    df["Upper"]  = upper
+    df["Lower"]  = lower
+
+    # Raw entry signal on band touch
+    df["Signal_raw"] = 0
+    mask_valid = df["Close"].notna() & middle.notna() & stdev.notna()
+    df.loc[mask_valid & (df["Close"] < lower), "Signal_raw"] =  1  # BUY at lower band
+    df.loc[mask_valid & (df["Close"] > upper), "Signal_raw"] = -1  # SELL at upper band
+
+    if not hold_until_mid:
+        # Simple: enter only when touching band; otherwise flat
+        df["Signal"] = df["Signal_raw"]
+        return df
+
+    # Persistent: hold until re-crossing the middle band
+    df["Signal"] = 0
+    side = 0  # +1 long, -1 short, 0 flat
+    for i in range(1, len(df)):
+        c_prev = df.at[i-1, "Close"]
+        m_prev = df.at[i-1, "Middle"]
+        c_now  = df.at[i,   "Close"]
+        m_now  = df.at[i,   "Middle"]
+        if pd.isna(c_prev) or pd.isna(m_prev) or pd.isna(c_now) or pd.isna(m_now):
+            df.at[i, "Signal"] = side
+            continue
+
+        raw_prev = int(df.at[i-1, "Signal_raw"])
+        if side == 0:
+            if raw_prev != 0:  # enter on prior bar's touch
+                side = raw_prev
+        elif side == 1:
+            # long: exit when price crosses up through middle (mean hit)
+            if (c_prev < m_prev) and (c_now >= m_now):
+                side = 0
+        elif side == -1:
+            # short: exit when price crosses down through middle
+            if (c_prev > m_prev) and (c_now <= m_now):
+                side = 0
+
+        df.at[i, "Signal"] = side
 
     return df
 
 
 # =====================  TURN SIGNALS INTO TRADES (NO MARTINGALE)  =====================
 
-
 def execute_signals(
     df: pd.DataFrame,
     position_size: float = 1.0,
     flat_on_zero: bool = True,
 ) -> pd.DataFrame:
-
+    
     df = df.copy()
     df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
 
-    # Initialize columns
     df["Position"] = 0.0
-    df["P&L"] = 0.0
-    df["Closed"] = 0
+    df["P&L"]      = 0.0
+    df["Closed"]   = 0
 
     side_prev = 0  # +1 long, -1 short, 0 flat
 
     for i in range(1, len(df)):
         price_prev = df.at[i - 1, "Close"]
-        price_now = df.at[i, "Close"]
+        price_now  = df.at[i,     "Close"]
         if pd.isna(price_prev) or pd.isna(price_now):
             continue
 
-        # Decide what we held during THIS bar using the previous bar's signal
         sig_prev = int(df.at[i - 1, "Signal"]) if "Signal" in df.columns else 0
         target_side = sig_prev if (sig_prev != 0 or flat_on_zero) else side_prev
 
-        # P&L earned/lost during this bar from the side we were holding
+        # P&L from what we held during THIS bar
         if side_prev != 0:
             df.at[i, "P&L"] = (price_now - price_prev) * side_prev * position_size
 
-        # If our target side changes, the current bar is an exit (close here)
+        # Mark an exit if side changes (including to flat)
         if side_prev != 0 and target_side != side_prev:
             df.at[i, "Closed"] = 1
 
-        # Adopt the new side going forward
+        # Adopt the new side
         side_prev = target_side
         df.at[i, "Position"] = side_prev * position_size
 
-    # If still in a trade at the end, mark the last bar as closed
+    # Force-close on final bar if still in a trade
     if side_prev != 0 and len(df) > 0:
-        last_i = len(df) - 1
-        df.at[last_i, "Closed"] = 1
+        df.at[len(df) - 1, "Closed"] = 1
 
     return df
 
 
 # =====================  MARTINGALE STRATEGY (SELF-CONTAINED)  =====================
-
 
 def martingale_strategy(
     df: pd.DataFrame,
@@ -116,7 +182,7 @@ def martingale_strategy(
     multiplier: float = 2.0,      # how much to increase after price moves against us
     step: float = 10.0,           # how far price must move against us before adding more
     take_profit: float = 5.0,     # how much gain we want before closing the trade
-    reverse_signals: bool = False,# whether to flip signals (buy↔sell)
+    reverse_signals: bool = False,# flip signals (buy↔sell) if True
     close_on_flip: bool = False   # if False, ignore flips while in drawdown
 ):
     df = df.copy()
@@ -190,9 +256,8 @@ def martingale_strategy(
                     'Note': f'Add x{multiplier}'
                 })
 
-        # Flip handling
+        # Flip handling (optional)
         if side != 0 and sig != 0 and sig != side:
-            # Check unrealized P&L from entry (are we in drawdown?)
             in_drawdown = ((price_now - entry_price) * side) < 0 if entry_price is not None else False
 
             if close_on_flip or not in_drawdown:
@@ -220,7 +285,7 @@ def martingale_strategy(
                 })
                 df.at[i, 'Position'] = current_lot * side
             else:
-                # Ignore flip while in drawdown; keep riding current position
+                # Ignore flip while in drawdown; keep riding the current position
                 pass
 
     # Force close at end of session if still open

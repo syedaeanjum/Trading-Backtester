@@ -3,7 +3,8 @@ from strategies import (
     ema_single,          # single-EMA signals (e.g., 9 EMA)
     ema_crossover,       # short/long EMA crossover
     execute_signals,     # turns signals into trades/P&L/Closed flags
-    martingale_strategy  # martingale engine
+    martingale_strategy, # martingale engine
+    bollinger_strategy   # Bollinger Bands strategy (mean reversion)
 )
 from backtest import backtest
 from report import plot_equity, plot_price_with_signals, performance_report
@@ -68,7 +69,7 @@ def load_fetch_and_clean(instrument: str, start_date: str, end_date: str, start_
     df.to_csv(csv_file, index=False)
     print(f"{instrument.upper()} data saved to {csv_file}, shape: {df.shape}")
 
-    # Clean to session window (e.g., 09:30–16:00 for equities)
+    # Clean to session window 
     df_clean = clean_intraday_data(csv_file, start_time=start_time, end_time=end_time)
     return df_clean
 
@@ -78,10 +79,10 @@ if __name__ == "__main__":
     
     # ================= CONFIGURATION =================
     
-    instrument = "gold"                # "spx" or "gold"
+    instrument = "spx"                # "spx" or "gold"
 
-    # Choose one: "ema_single" (price vs one EMA), "ema" (two-EMA crossover), or "martingale"
-    strategy = "martingale"
+    # Choose one: "ema_single", "ema", "bollinger", or "martingale"
+    strategy = "bollinger"
 
     # Date range
     start_date = "2025-08-19"
@@ -89,13 +90,19 @@ if __name__ == "__main__":
 
     # Session window (HH:MM in 24h)
     backtest_start_time = "15:00"
-    backtest_end_time   = "17:00"
+    backtest_end_time   = "19:00"
 
     # --- EMA settings ---
     ema_single_window  = 9      # for ema_single
     ema_short          = 9      # for ema crossover
     ema_long           = 21
-    ema_position_size  = 2.0    # lot size for EMA-only strategies
+    ema_position_size  = 5.0    # lot size for EMA-only strategies (and Bollinger execution)
+
+    # --- Bollinger settings (only used if strategy == "bollinger") ---
+    bb_window   = 30            # moving average lookback
+    bb_num_std  = 2.5           # band width (in standard deviations)
+    bb_use_ema  = False         # middle band type: False=SMA, True=EMA
+    bb_hold_mid = True          # hold until price re-crosses middle band
 
     # --- Martingale settings (only used if strategy == "martingale") ---
     base_lot        = 13.00
@@ -131,6 +138,19 @@ if __name__ == "__main__":
         df = execute_signals(df, position_size=ema_position_size, flat_on_zero=True)
         print(f"EMA crossover signals generated (short={ema_short}, long={ema_long}, position size={ema_position_size}).")
 
+    elif strategy.lower() == "bollinger":
+
+        df = bollinger_strategy(
+            df,
+            window=bb_window,
+            num_std=bb_num_std,
+            use_ema=bb_use_ema,
+            hold_until_mid=bb_hold_mid
+        )
+        # Convert signals into trades with fixed position size
+        df = execute_signals(df, position_size=ema_position_size, flat_on_zero=True)
+        print(f"Bollinger signals generated (window={bb_window}, std={bb_num_std}, hold_until_mid={bb_hold_mid}, pos={ema_position_size}).")
+
     elif strategy.lower() == "martingale":
         # Martingale uses EMA signals as a directional base first
         df = ema_crossover(df, short_window=ema_short, long_window=ema_long)
@@ -146,7 +166,7 @@ if __name__ == "__main__":
         )
         print("Martingale strategy applied.")
     else:
-        raise ValueError("Strategy not supported. Choose 'ema_single', 'ema', or 'martingale'.")
+        raise ValueError("Strategy not supported. Choose 'ema_single', 'ema', 'bollinger', or 'martingale'.")
 
     # Run backtest (saves trades.csv and trades_summary.csv; prints summary)
     results = backtest(df, starting_equity=starting_equity, trades_df=trades_df)
